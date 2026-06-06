@@ -1,0 +1,21 @@
+
+
+
+
+# Dependencies
+node_modules
+
+# Compiled output — Render builds this from source
+dist
+
+.next/
+dist/
+
+# Local environment secrets — NEVER commit .env
+.env*
+# Editor
+.vscode
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
