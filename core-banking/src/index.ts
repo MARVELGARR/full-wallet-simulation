@@ -22,6 +22,8 @@ router.get("/", (req, res)=>{
     res.send("wahala")
 })
 
+app.use(router)
+
 // ── HTTP Port ─────────────────────────────────────────────────
 const PORT = Number(process.env.PORT) || 3000;
 
