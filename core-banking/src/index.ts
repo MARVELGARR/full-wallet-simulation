@@ -32,7 +32,7 @@ const start = async (): Promise<void> => {
     // Run pending Drizzle migrations (creates tables on first deploy)
     try {
         serverLogger.info("Running database migrations...");
-        await migrate(db, { migrationsFolder: "./app/database/migrations" });
+        await migrate(db, { migrationsFolder: "./src/database/migrations" });
         serverLogger.info("✅ Migrations complete");
         
     } catch (err) {
