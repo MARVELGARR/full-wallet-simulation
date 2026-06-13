@@ -21,9 +21,9 @@
 #     "password": "marvellous"
 #     }
 
-# POST  http://localhost/api/users/auth/logout HTTP/1.1
-# content-type: application/json
-# Authorization: `Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJlOGY5MmM0ZC0wMDc5LTRkNzAtYjZjMi1mMTRiNGQ3OWU0ZGUiLCJlbWFpbCI6ImV4Y2VsQGdtYWlsLmNvbSIsIm5hbWUiOiJleGNlbCIsImlhdCI6MTc4MTM1MDQ3MSwiZXhwIjoxNzgxOTU1MjcxLCJpc3MiOiJ1c2VyX3NlcnZpY2VfYXBpIn0.4z7a-E5tKKmp887yJfOSXnffGNW_FwKO82CoNNGPoPk`
+POST  http://localhost/api/users/auth/logout HTTP/1.1
+content-type: application/json
+Authorization: `Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJlOGY5MmM0ZC0wMDc5LTRkNzAtYjZjMi1mMTRiNGQ3OWU0ZGUiLCJlbWFpbCI6ImV4Y2VsQGdtYWlsLmNvbSIsIm5hbWUiOiJleGNlbCIsImlhdCI6MTc4MTM1MDQ3MSwiZXhwIjoxNzgxOTU1MjcxLCJpc3MiOiJ1c2VyX3NlcnZpY2VfYXBpIn0.4z7a-E5tKKmp887yJfOSXnffGNW_FwKO82CoNNGPoPk`
 
 
 
