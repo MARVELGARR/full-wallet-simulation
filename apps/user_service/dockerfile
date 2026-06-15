@@ -1,8 +1,0 @@
-FROM node:22-alpine
-
-WORKDIR /app
-
-EXPOSE 3000
-
-# No npm install here — handled at runtime via docker-compose command
-CMD [ "npm", "run", "dev" ]
