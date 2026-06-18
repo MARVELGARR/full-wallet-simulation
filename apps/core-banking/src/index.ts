@@ -9,6 +9,8 @@ import { serverLogger } from "./settings/pino.config";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { db } from "./settings/db.config";
 import { InitRabbitMQ } from "./settings/rabbitQ.config"
+import { initUserEventHandlers } from "./events/user.events";
+
 
 
 
@@ -43,14 +45,19 @@ const start = async (): Promise<void> => {
     }
 
 
-    try{
-        serverLogger.info(`RabbirMQ Initializing`)
+    try {
+        serverLogger.info(`RabbitMQ Initializing`)
         await InitRabbitMQ()
-        serverLogger.info(`RabbirMQ connected`)
-    }catch(error){
-        serverLogger.fatal(`RabbirMQ failed to initialise `)
+        serverLogger.info(`RabbitMQ connected`)
+
+        // Start listening for events
+        await initUserEventHandlers();
+        serverLogger.info(`Event handlers initialized`)
+    } catch (error) {
+        serverLogger.fatal(`RabbitMQ/Events failed to initialise `)
         process.exit(1);
     }
+
 
     app.listen(PORT, () => {
         serverLogger.info(`🚀 Running on http://localhost:${PORT}`);
