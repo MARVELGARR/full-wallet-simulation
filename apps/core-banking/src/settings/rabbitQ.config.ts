@@ -5,8 +5,8 @@ import amqp from "amqplib"
 
 type RoutingKey = "user.created" | "user.logged_in" | "user.logged_out"
 
-let conn: any
-let channel: any
+let conn: amqp.ChannelModel
+let channel: amqp.Channel
 
 const exchange = "user-service"
 const queueName = "banking-user-events"

@@ -1,3 +1,7 @@
+
+
+
+
 import { subscribeToEvents } from "../settings/rabbitQ.config"
 import { createWallet } from "../service/wallet.service"
 import { serverLogger } from "../settings/pino.config"
@@ -29,7 +33,7 @@ export const initUserEventHandlers = async () => {
                 
                 await createWallet({
                     userId: userId,
-                    currency: event.currency || "USD"
+                    currency: event.currency || "NGN"
                 });
 
                 serverLogger.info(`Successfully created wallet for user: ${userId}`);
