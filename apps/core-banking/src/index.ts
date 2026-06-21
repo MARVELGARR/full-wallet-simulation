@@ -10,6 +10,8 @@ import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { db } from "./settings/db.config";
 import { InitRabbitMQ } from "./settings/rabbitQ.config"
 import { initUserEventHandlers } from "./events/user.events";
+import { initTransactionEventHandlers } from "./events/transaction.events";
+import { bankingRouter } from "./routers/banking.router";
 
 
 
@@ -21,10 +23,11 @@ const router = Router()
 app.use(express.json());
 
 router.get("/", (req, res)=>{
-    res.send("wahala")
+    res.send("Core Banking Service — Running ✅")
 })
 
 app.use(router)
+app.use(bankingRouter)
 
 // ── HTTP Port ─────────────────────────────────────────────────
 const PORT = Number(process.env.PORT) || 3000;
@@ -52,7 +55,10 @@ const start = async (): Promise<void> => {
 
         // Start listening for events
         await initUserEventHandlers();
-        serverLogger.info(`Event handlers initialized`)
+        serverLogger.info(`User event handlers initialized`)
+
+        await initTransactionEventHandlers();
+        serverLogger.info(`Transaction event handlers initialized`)
     } catch (error) {
         serverLogger.fatal(`RabbitMQ/Events failed to initialise `)
         process.exit(1);
@@ -60,7 +66,7 @@ const start = async (): Promise<void> => {
 
 
     app.listen(PORT, () => {
-        serverLogger.info(`🚀 Running on http://localhost:${PORT}`);
+        serverLogger.info(`🚀 Core Banking running on http://localhost:${PORT}`);
     });
 };
 

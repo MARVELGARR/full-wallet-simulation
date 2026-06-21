@@ -1,8 +1,8 @@
 import { decimal, pgEnum, pgTable, text, timestamp, uuid, varchar, index, jsonb } from "drizzle-orm/pg-core";
 
-export const transactionTypeEnum = pgEnum("transaction_type", ["credit", "debit", "transfer", "reversal"]);
+export const transactionTypeEnum = pgEnum("transaction_type", ["credit", "debit", "lock", "reversal"]);
 export const transactionStatusEnum = pgEnum("transaction_status", ["pending", "completed", "failed"]);
-export const transactionCategoryEnum = pgEnum("transaction_category", ["fund", "withdrawal", "p2p", "bill", "fee"]);
+export const transactionCategoryEnum = pgEnum("transaction_category", ["funding", "withdrawal", "p2p_transfere", "bill", "fee", "refund", "bonus"]);
 
 export const wallets = pgTable("wallets", {
   id: uuid("id").primaryKey().defaultRandom(),

@@ -2,11 +2,7 @@ import { insertWallet, findWalletByUserId as findWalletInDb } from "../data-acce
 import { createInsertSchema } from "drizzle-zod"
 import { wallets } from "../database/schema"
 import * as z from "zod"
-
-
-type ServiceSuccess<T> = { success: true; data: T };
-type ServiceError = { success: false; error: string; details?: unknown };
-type ServiceResult<T> = ServiceSuccess<T> | ServiceError;
+import { ServiceResult } from "../utils/types"
 
 
 // Schema for inserting a wallet

@@ -8,6 +8,13 @@
       "when": 1781771937488,
       "tag": "0000_living_titanium_man",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1782053058746,
+      "tag": "0001_flaky_thor",
+      "breakpoints": true
     }
   ]
 }

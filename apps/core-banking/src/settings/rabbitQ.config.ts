@@ -1,15 +1,16 @@
 
 
-
 import amqp from "amqplib"
 
-type RoutingKey = "user.created" | "user.logged_in" | "user.logged_out"
+type RoutingKey = "user.created" | "user.logged_in" | "user.logged_out" | "transaction.completed" | "transaction.failed"
 
 let conn: amqp.ChannelModel
 let channel: amqp.Channel
 
 const exchange = "user-service"
-const queueName = "banking-user-events"
+const bankingExchange = "banking-service"
+const userQueueName = "banking-user-events"
+const transactionQueueName = "banking-transaction-events"
 
 export const InitRabbitMQ = async () => {
     try {
@@ -17,23 +18,35 @@ export const InitRabbitMQ = async () => {
         conn = await amqp.connect(connectionURL)
         channel = await conn.createChannel()
 
+        // ── User Service Exchange (consume from) ─────────────
         await channel.assertExchange(exchange, "topic", { durable: true })
+        await channel.assertQueue(userQueueName, { durable: true })
+        await channel.bindQueue(userQueueName, exchange, "user.created")
+
+        // ── Banking Service Exchange (publish to) ────────────
+        await channel.assertExchange(bankingExchange, "topic", { durable: true })
+        await channel.assertQueue(transactionQueueName, { durable: true })
+        await channel.bindQueue(transactionQueueName, bankingExchange, "transaction.completed")
+        await channel.bindQueue(transactionQueueName, bankingExchange, "transaction.failed")
         
-        await channel.assertQueue(queueName, { durable: true })
-        
-        await channel.bindQueue(queueName, exchange, "user.created")
-        
-        console.log("[*] RabbitMQ Initialized and Queue bound");
+        console.log("[*] RabbitMQ Initialized — User + Banking queues bound");
     } catch (error) {
         console.error("Failed to initialize RabbitMQ:", error);
         throw error;
     }
 }
 
-export const subscribeToEvents = async (onMessage: (msg: any) => void) => {
+/**
+ * Subscribe to events on a specific queue.
+ * Defaults to "banking-user-events" for backwards compatibility.
+ */
+export const subscribeToEvents = async (
+    onMessage: (msg: any) => void,
+    queue: string = userQueueName
+) => {
     if (!channel) throw new Error("RabbitMQ channel not initialized");
     
-    await channel.consume(queueName, (msg: any) => {
+    await channel.consume(queue, (msg: any) => {
         if (msg) {
             onMessage(msg);
             channel.ack(msg);
@@ -44,7 +57,10 @@ export const subscribeToEvents = async (onMessage: (msg: any) => void) => {
 
 export const publishEvent = async (routeKey: RoutingKey, data: any) => {
     if (!channel) throw new Error("RabbitMQ not initiated, call initRabbitMq()")
-    channel.publish(exchange, routeKey, Buffer.from(JSON.stringify(data)), { persistent: true })
+
+    // Route to the correct exchange based on routing key
+    const targetExchange = routeKey.startsWith("transaction.") ? bankingExchange : exchange;
+    channel.publish(targetExchange, routeKey, Buffer.from(JSON.stringify(data)), { persistent: true })
 }
 
 export const closeRabbitMQ = async () => {
