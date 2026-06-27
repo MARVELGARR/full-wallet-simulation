@@ -284,6 +284,15 @@ export const transfer_service = async (
 
 
     } catch (error) {
+        publishEvent("transaction.failed", {
+            type: "p2p_transfer",
+            senderUserId,
+            receiverUserId,
+            amount: amount.toFixed(4),
+            reason: "internal_error",
+            timestamp: new Date().toISOString(),
+        });
+
         transferLogger.error(
             { error, senderUserId, receiverUserId, amount },
             "P2P Transfer failed"

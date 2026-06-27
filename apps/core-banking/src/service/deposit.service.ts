@@ -196,6 +196,13 @@ export const deposit_service = async (
             },
         };
     } catch (error) {
+        publishEvent("transaction.failed", {
+            type: "funding",
+            userId,
+            amount: amount.toFixed(4),
+            reason: "internal_error",
+            timestamp: new Date().toISOString(),
+        });
 
         depositLogger.error({ error, reference, userId }, "Deposit failed");
         return {

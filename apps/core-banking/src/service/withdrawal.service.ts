@@ -202,7 +202,13 @@ export const withdrawal_service = async (
             },
         };
     } catch (error) {
-
+        publishEvent("transaction.failed", {
+            type: "withdrawal",
+            userId,
+            amount: amount.toFixed(4),
+            reason: "internal_error",
+            timestamp: new Date().toISOString(),
+        });
 
         withdrawalLogger.error({ error, reference, userId }, "Withdrawal failed");
         return {
