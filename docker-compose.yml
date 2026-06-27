@@ -58,7 +58,7 @@ services:
       dockerfile: dockerfile
     container_name: user-service
     restart: on-failure
-    command: sh -c "npm ci --force && npm run dev --force"
+    command: sh -c "npm install && npm run dev"
     expose:
       - "3000"
     environment:
@@ -73,7 +73,7 @@ services:
       - rabbitmq
     volumes:
       - ./apps/user-service:/app
-      - /app/node_modules
+      - user_node_modules:/app/node_modules
 
   core-banking:
     build:
@@ -81,7 +81,7 @@ services:
       dockerfile: dockerfile
     container_name: core-banking
     restart: on-failure
-    command: sh -c "npm ci --force && npm run dev --force"
+    command: sh -c "npm install && npm run dev"
     expose:
       - "3001"
     environment:
@@ -94,7 +94,7 @@ services:
       - rabbitmq
     volumes:
       - ./apps/core-banking:/app
-      - /app/node_modules
+      - banking_node_modules:/app/node_modules
 
 volumes:
   users_postgres_data:

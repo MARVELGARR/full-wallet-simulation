@@ -1,12 +1,15 @@
 import * as z from "zod";
 import { ServiceResult } from "../utils/types";
 import { generateReference } from "../utils/reference.utils";
-import { findWalletByUserId, updateWalletBalance } from "../data-access-layer-core/wallet.data-access-layer";
+import { findeWalletByUserIdForUpdate, findWalletByUserId, updateWalletBalance } from "../data-access-layer-core/wallet.data-access-layer";
 import { insertTransaction, updateTransactionStatus } from "../data-access-layer-core/transaction.data-access-layer";
 import { insertLedgerEntry } from "../data-access-layer-core/ledger.data-access-layer";
 import { findIdempotencyKey, insertIdempotencyKey } from "../data-access-layer-core/idempotency.data-access-layer";
 import { publishEvent } from "../settings/rabbitQ.config";
 import { serverLogger } from "../settings/pino.config";
+import { db } from "../settings/db.config";
+import { ledger, transactions, wallets } from "../database/schema";
+import { and, eq } from "drizzle-orm";
 
 // ─────────────────────────────────────────────────────────────
 // WITHDRAWAL SERVICE
@@ -76,7 +79,7 @@ export const withdrawal_service = async (
     }
 
     // 3. Find the user's wallet
-    const wallet = await findWalletByUserId(userId);
+    const wallet = await findeWalletByUserIdForUpdate(userId);
     if (!wallet) {
         return {
             success: false,
@@ -101,41 +104,66 @@ export const withdrawal_service = async (
     const reference = generateReference("WDR");
 
     try {
-        // 6. Create the transaction record (status: pending)
-        const txn = await insertTransaction({
-            reference,
-            walletId: wallet.id,
-            amount: amount.toFixed(4),
-            balanceBefore,
-            balanceAfter,
-            type: "debit",
-            category: "withdrawal",
-            narration: narration || "Wallet withdrawal",
-            status: "pending",
-        });
 
-        // 7. Update the wallet balance
-        await updateWalletBalance(wallet.id, balanceAfter);
 
-        // 8. Create the ledger entry
-        await insertLedgerEntry({
-            txnId: txn.id,
-            walletId: wallet.id,
-            type: "debit",
-            amount: amount.toFixed(4),
-        });
+        const withdrawerTxn = await db.transaction(async (tx) => {
 
-        // 9. Mark the transaction as completed
-        const completedTxn = await updateTransactionStatus(txn.id, "completed");
+            const [txn] = await tx.insert(transactions).values({
+                reference,
+                walletId: wallet.id,
+                amount: amount.toFixed(4),
+                balanceBefore,
+                balanceAfter,
+                type: "debit",
+                category: "withdrawal",
+                narration: narration || "Wallet withdrawal",
+                status: "pending",
+            }).returning()
+
+            await tx.insert(ledger).values({
+                txnId: txn.id,
+                walletId: wallet.id,
+                type: "debit",
+                amount: amount.toFixed(4),
+            })
+
+
+            await tx.update(wallets).set({ balance: balanceAfter }).where(eq(wallets.userId, userId))
+
+            await tx.update(transactions).set({ status: "completed" }).where(eq(transactions.id, txn.id))
+
+
+            return {
+                success: true,
+                data: {
+                    transaction: {
+                        id: txn.id,
+                        reference: txn.reference,
+                        amount: txn.amount,
+                        balanceBefore: txn.balanceBefore,
+                        balanceAfter: txn.balanceAfter,
+                        type: txn.type,
+                        category: txn.category,
+                        status: txn.status,
+                        narration: txn.narration,
+                        createdAt: txn.createdAt,
+                    },
+                    wallet: {
+                        id: wallet.id,
+                        newBalance: balanceAfter,
+                    },
+                },
+            };
+        })
 
         // 10. Save idempotency key
         if (idempotencyKey) {
-            await insertIdempotencyKey(idempotencyKey, txn.id);
+            await insertIdempotencyKey(idempotencyKey, withdrawerTxn.data.transaction.id);
         }
 
         // 11. Publish event via RabbitMQ
         publishEvent("transaction.completed", {
-            transactionId: txn.id,
+            transactionId: withdrawerTxn.data.transaction.id,
             reference,
             userId,
             walletId: wallet.id,
@@ -156,16 +184,16 @@ export const withdrawal_service = async (
             success: true,
             data: {
                 transaction: {
-                    id: completedTxn.id,
-                    reference: completedTxn.reference,
-                    amount: completedTxn.amount,
-                    balanceBefore: completedTxn.balanceBefore,
-                    balanceAfter: completedTxn.balanceAfter,
-                    type: completedTxn.type,
-                    category: completedTxn.category,
-                    status: completedTxn.status,
-                    narration: completedTxn.narration,
-                    createdAt: completedTxn.createdAt,
+                    id: withdrawerTxn.data.transaction.id,
+                    reference: withdrawerTxn.data.transaction.reference,
+                    amount: withdrawerTxn.data.transaction.amount,
+                    balanceBefore: withdrawerTxn.data.transaction.balanceBefore,
+                    balanceAfter: withdrawerTxn.data.transaction.balanceAfter,
+                    type: withdrawerTxn.data.transaction.type,
+                    category: withdrawerTxn.data.transaction.category,
+                    status: withdrawerTxn.data.transaction.status,
+                    narration: withdrawerTxn.data.transaction.narration,
+                    createdAt: withdrawerTxn.data.transaction.createdAt,
                 },
                 wallet: {
                     id: wallet.id,
@@ -174,6 +202,8 @@ export const withdrawal_service = async (
             },
         };
     } catch (error) {
+
+
         withdrawalLogger.error({ error, reference, userId }, "Withdrawal failed");
         return {
             success: false,

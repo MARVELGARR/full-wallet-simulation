@@ -1,13 +1,15 @@
 import * as z from "zod";
 import { ServiceResult } from "../utils/types";
 import { generateReference } from "../utils/reference.utils";
-import { findWalletByUserId } from "../data-access-layer-core/wallet.data-access-layer";
-import { updateWalletBalance } from "../data-access-layer-core/wallet.data-access-layer";
-import { insertTransaction, updateTransactionStatus } from "../data-access-layer-core/transaction.data-access-layer";
-import { insertLedgerEntry } from "../data-access-layer-core/ledger.data-access-layer";
+import { findeWalletByUserIdForUpdate } from "../data-access-layer-core/wallet.data-access-layer";
+
 import { findIdempotencyKey, insertIdempotencyKey } from "../data-access-layer-core/idempotency.data-access-layer";
 import { publishEvent } from "../settings/rabbitQ.config";
 import { serverLogger } from "../settings/pino.config";
+import { db } from "../settings/db.config";
+import { ledger, transactions, wallets } from "../database/schema";
+import { and, eq } from "drizzle-orm";
+import { updateTransactionStatus } from "../data-access-layer-core/transaction.data-access-layer";
 
 // ─────────────────────────────────────────────────────────────
 // DEPOSIT SERVICE
@@ -77,7 +79,7 @@ export const deposit_service = async (
     }
 
     // 3. Find the user's wallet
-    const wallet = await findWalletByUserId(userId);
+    const wallet = await findeWalletByUserIdForUpdate(userId);
     if (!wallet) {
         return {
             success: false,
@@ -96,43 +98,69 @@ export const deposit_service = async (
 
     try {
         // 5. Create the transaction record (status: pending)
-        const txn = await insertTransaction({
-            reference,
-            walletId: wallet.id,
-            amount: amount.toFixed(4),
-            balanceBefore,
-            balanceAfter,
-            type: "credit",
-            category: "funding",
-            narration: narration || "Wallet funding",
-            status: "pending",
-        });
 
-        // 6. Update the wallet balance
-        await updateWalletBalance(wallet.id, balanceAfter);
+        const DepositTnx = await db.transaction(async (tx) => {
 
-        // 7. Create the ledger entry (double-entry bookkeeping)
-        await insertLedgerEntry({
-            txnId: txn.id,
-            walletId: wallet.id,
-            type: "credit",
-            amount: amount.toFixed(4),
-        });
 
-        // 8. Mark the transaction as completed
-        const completedTxn = await updateTransactionStatus(txn.id, "completed");
+            const [tnx] = await tx.insert(transactions).values({
+                reference,
+                walletId: wallet.id,
+                amount: amount.toFixed(4),
+                balanceBefore,
+                balanceAfter,
+                type: "credit",
+                category: "funding",
+                narration: narration || "Wallet funding",
+                status: "pending",
+            }).returning()
 
+            await tx.insert(ledger).values({
+                txnId: tnx.id,
+                walletId: wallet.id,
+                type: "credit",
+                amount: amount.toFixed(4),
+            })
+
+            await tx.update(wallets).set({ balance: balanceAfter }).where(eq(wallets.userId, userId))
+
+            await tx.update(transactions).set({
+                status: "completed"
+            }).where(eq(transactions.id, tnx.id))
+
+            return {
+                success: true,
+                data: {
+                    transaction: {
+                        id: tnx.id,
+                        reference: tnx.reference,
+                        amount: tnx.amount,
+                        balanceBefore: tnx.balanceBefore,
+                        balanceAfter: tnx.balanceAfter,
+                        type: tnx.type,
+                        category: tnx.category,
+                        status: tnx.status,
+                        narration: tnx.narration,
+                        createdAt: tnx.createdAt,
+                    },
+                    wallet: {
+                        id: wallet.id,
+                        newBalance: balanceAfter,
+                    },
+                },
+            };
+
+        })
         // 9. Save idempotency key
         if (idempotencyKey) {
-            await insertIdempotencyKey(idempotencyKey, txn.id);
+            await insertIdempotencyKey(idempotencyKey, DepositTnx.data.transaction.id);
         }
 
         // 10. Publish event via RabbitMQ
         publishEvent("transaction.completed", {
-            transactionId: txn.id,
+            transactionId: DepositTnx.data.transaction.id,
             reference,
             userId,
-            walletId: wallet.id,
+            walletId: DepositTnx.data.wallet.id,
             type: "credit",
             category: "funding",
             amount: amount.toFixed(4),
@@ -150,16 +178,16 @@ export const deposit_service = async (
             success: true,
             data: {
                 transaction: {
-                    id: completedTxn.id,
-                    reference: completedTxn.reference,
-                    amount: completedTxn.amount,
-                    balanceBefore: completedTxn.balanceBefore,
-                    balanceAfter: completedTxn.balanceAfter,
-                    type: completedTxn.type,
-                    category: completedTxn.category,
-                    status: completedTxn.status,
-                    narration: completedTxn.narration,
-                    createdAt: completedTxn.createdAt,
+                    id: DepositTnx.data.transaction.id,
+                    reference: DepositTnx.data.transaction.reference,
+                    amount: DepositTnx.data.transaction.amount,
+                    balanceBefore: DepositTnx.data.transaction.balanceBefore,
+                    balanceAfter: DepositTnx.data.transaction.balanceAfter,
+                    type: DepositTnx.data.transaction.type,
+                    category: DepositTnx.data.transaction.category,
+                    status: DepositTnx.data.transaction.status,
+                    narration: DepositTnx.data.transaction.narration,
+                    createdAt: DepositTnx.data.transaction.createdAt,
                 },
                 wallet: {
                     id: wallet.id,
@@ -168,6 +196,7 @@ export const deposit_service = async (
             },
         };
     } catch (error) {
+
         depositLogger.error({ error, reference, userId }, "Deposit failed");
         return {
             success: false,
