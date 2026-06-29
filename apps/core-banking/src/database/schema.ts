@@ -52,3 +52,17 @@ export const idempotencyKeys = pgTable("idempotency_keys", {
   txnId: uuid("transaction_id").references(() => transactions.id).notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
+export const outboxEventStatusEnum = pgEnum("outbox_event_status", ["pending", "processed", "failed"]);
+
+export const outboxEvents = pgTable("outbox_events", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  eventType: varchar("event_type", { length: 255 }).notNull(),
+  payload: jsonb("payload").notNull(),
+  status: outboxEventStatusEnum("status").default("pending").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  processedAt: timestamp("processed_at"),
+  error: text("error"),
+}, (table) => ({
+  statusIdx: index("outbox_status_idx").on(table.status),
+}));

@@ -12,6 +12,7 @@ import { InitRabbitMQ } from "./settings/rabbitQ.config"
 import { initUserEventHandlers } from "./events/user.events";
 import { initTransactionEventHandlers } from "./events/transaction.events";
 import { bankingRouter } from "./routers/banking.router";
+import { startOutboxWorker } from "./workers/outbox.worker";
 
 
 
@@ -22,7 +23,7 @@ const router = Router()
 // ── Standard Middleware ───────────────────────────────────────
 app.use(express.json());
 
-router.get("/", (req, res)=>{
+router.get("/", (req, res) => {
     res.send("Core Banking Service — Running ✅")
 })
 
@@ -41,7 +42,7 @@ const start = async (): Promise<void> => {
         serverLogger.info("Running database migrations...");
         await migrate(db, { migrationsFolder: "./src/database/migrations" });
         serverLogger.info("✅ Migrations complete");
-        
+
     } catch (err) {
         serverLogger.fatal({ err }, "❌ Migration failed");
         process.exit(1);
@@ -68,6 +69,9 @@ const start = async (): Promise<void> => {
     app.listen(PORT, () => {
         serverLogger.info(`🚀 Core Banking running on http://localhost:${PORT}`);
     });
+
+    // Start background jobs
+    startOutboxWorker();
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -79,6 +83,6 @@ const shutdown = async (signal: string): Promise<void> => {
 };
 
 process.on("SIGTERM", () => shutdown("SIGTERM"));
-process.on("SIGINT",  () => shutdown("SIGINT"));
+process.on("SIGINT", () => shutdown("SIGINT"));
 
 start();

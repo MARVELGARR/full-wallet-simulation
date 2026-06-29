@@ -5,7 +5,7 @@ import { findIdempotencyKey, insertIdempotencyKey } from "../data-access-layer-c
 import { publishEvent } from "../settings/rabbitQ.config";
 import { serverLogger } from "../settings/pino.config";
 import { db } from "../settings/db.config";
-import { ledger, transactions, wallets } from "../database/schema";
+import { ledger, outboxEvents, transactions, wallets } from "../database/schema";
 import { eq } from "drizzle-orm";
 
 // ─────────────────────────────────────────────────────────────
@@ -210,6 +210,20 @@ export const transfer_service = async (
 
             await tx.update(transactions).set({ status: "completed" }).where(eq(transactions.id, receiverTx.id))
 
+            // ── OUTBOX PATTERN (Guarantee Event Delivery) ────────
+            await tx.insert(outboxEvents).values({
+                eventType: "transaction.completed",
+                payload: {
+                    type: "p2p_transfer",
+                    senderTransactionId: senderTx.id,
+                    receiverTransactionId: receiverTx.id,
+                    senderUserId,
+                    receiverUserId,
+                    amount: amount.toFixed(4),
+                    timestamp: new Date().toISOString(),
+                }
+            })
+
             return {
                 success: true,
                 data: {
@@ -242,15 +256,8 @@ export const transfer_service = async (
 
 
         // ── PUBLISH EVENTS ───────────────────────────────────
-        publishEvent("transaction.completed", {
-            type: "p2p_transfer",
-            senderTransactionId: p2pTranx.data.senderTransaction.id,
-            receiverTransactionId: p2pTranx.data.receiverTransaction.id,
-            senderUserId,
-            receiverUserId,
-            amount: amount.toFixed(4),
-            timestamp: new Date().toISOString(),
-        });
+        // We now rely on the Outbox Worker to publish the event instead of publishing directly,
+        // to guarantee that the database commit and the event firing don't become out of sync.
 
         const senderRef = p2pTranx.data.senderTransaction.reference
         const receiverRef = p2pTranx.data.receiverTransaction.reference

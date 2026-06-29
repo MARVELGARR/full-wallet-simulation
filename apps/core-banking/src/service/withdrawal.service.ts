@@ -8,8 +8,8 @@ import { findIdempotencyKey, insertIdempotencyKey } from "../data-access-layer-c
 import { publishEvent } from "../settings/rabbitQ.config";
 import { serverLogger } from "../settings/pino.config";
 import { db } from "../settings/db.config";
-import { ledger, transactions, wallets } from "../database/schema";
-import { and, eq } from "drizzle-orm";
+import { ledger, outboxEvents, transactions, wallets } from "../database/schema";
+import { eq } from "drizzle-orm";
 
 // ─────────────────────────────────────────────────────────────
 // WITHDRAWAL SERVICE
@@ -132,6 +132,23 @@ export const withdrawal_service = async (
 
             await tx.update(transactions).set({ status: "completed" }).where(eq(transactions.id, txn.id))
 
+            // ── OUTBOX PATTERN (Guarantee Event Delivery) ────────
+            await tx.insert(outboxEvents).values({
+                eventType: "transaction.completed",
+                payload: {
+                    transactionId: txn.id,
+                    reference,
+                    userId,
+                    walletId: wallet.id,
+                    type: "debit",
+                    category: "withdrawal",
+                    amount: amount.toFixed(4),
+                    balanceBefore,
+                    balanceAfter,
+                    timestamp: new Date().toISOString(),
+                }
+            })
+
 
             return {
                 success: true,
@@ -162,18 +179,7 @@ export const withdrawal_service = async (
         }
 
         // 11. Publish event via RabbitMQ
-        publishEvent("transaction.completed", {
-            transactionId: withdrawerTxn.data.transaction.id,
-            reference,
-            userId,
-            walletId: wallet.id,
-            type: "debit",
-            category: "withdrawal",
-            amount: amount.toFixed(4),
-            balanceBefore,
-            balanceAfter,
-            timestamp: new Date().toISOString(),
-        });
+        // Handled securely by the Outbox Worker via the outboxEvents table.
 
         withdrawalLogger.info(
             { reference, userId, amount },

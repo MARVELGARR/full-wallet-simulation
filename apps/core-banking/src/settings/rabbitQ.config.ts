@@ -18,18 +18,31 @@ export const InitRabbitMQ = async () => {
         conn = await amqp.connect(connectionURL)
         channel = await conn.createChannel()
 
+        // ── Dead Letter Exchange (DLX) ───────────────────────
+        const dlxExchange = "dlx-exchange";
+        const dlxQueue = "dlx-queue";
+        await channel.assertExchange(dlxExchange, "topic", { durable: true });
+        await channel.assertQueue(dlxQueue, { durable: true });
+        await channel.bindQueue(dlxQueue, dlxExchange, "#"); // Catch anything routed to DLX
+
         // ── User Service Exchange (consume from) ─────────────
         await channel.assertExchange(exchange, "topic", { durable: true })
-        await channel.assertQueue(userQueueName, { durable: true })
+        await channel.assertQueue(userQueueName, {
+            durable: true,
+            deadLetterExchange: dlxExchange // If we reject a message, it goes here
+        })
         await channel.bindQueue(userQueueName, exchange, "user.created")
 
         // ── Banking Service Exchange (publish to) ────────────
         await channel.assertExchange(bankingExchange, "topic", { durable: true })
-        await channel.assertQueue(transactionQueueName, { durable: true })
+        await channel.assertQueue(transactionQueueName, {
+            durable: true,
+            deadLetterExchange: dlxExchange
+        })
         await channel.bindQueue(transactionQueueName, bankingExchange, "transaction.completed")
         await channel.bindQueue(transactionQueueName, bankingExchange, "transaction.failed")
-        
-        console.log("[*] RabbitMQ Initialized — User + Banking queues bound");
+
+        console.log("[*] RabbitMQ Initialized — User + Banking queues bound (with DLX)");
     } catch (error) {
         console.error("Failed to initialize RabbitMQ:", error);
         throw error;
@@ -45,7 +58,7 @@ export const subscribeToEvents = async (
     queue: string = userQueueName
 ) => {
     if (!channel) throw new Error("RabbitMQ channel not initialized");
-    
+
     await channel.consume(queue, (msg: any) => {
         if (msg) {
             onMessage(msg);

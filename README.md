@@ -61,6 +61,8 @@ graph TD
 3. **Transaction Engine**: Handles Deposits, Withdrawals, and P2P Transfers with **Atomic Balance Updates**.
 4. **Ledger Integrity**: Every transaction creates an immutable entry in the Ledger table for audit trails.
 5. **Idempotency**: Prevents double-spend or duplicate processing via cryptographic keys.
+6. **Concurrency Control**: Pessimistic database row locking (`SELECT FOR UPDATE`) prevents read-modify-write race conditions.
+7. **Transactional Outbox**: Guarantees 100% reliable event delivery to RabbitMQ by storing events in the database transactionally.
 
 ---
 
@@ -74,6 +76,7 @@ graph TD
 | 📤 **Withdrawals** | Secure fund withdrawals | Real-time balance guard checks |
 | 🔄 **P2P Transfer**| User-to-User fund moves | Atomic dual-account ledger updating |
 | 📜 **History** | Deep transaction audit | Paginated history with reference tracking |
+| 🛡 **Reliability**| Dead Letter Exchanges & Outbox | Failed messages are queued cleanly, and DB events never desync |
 
 ---
 
@@ -108,8 +111,9 @@ Check if the system is alive:
 
 ### 4️⃣ First Run Steps
 1. **Register User**: POST to `/api/users/auth/register`.
-2. **Check Wallet**: The banking service will auto-create a wallet for you.
+2. **Check Wallet**: The banking service will auto-create a wallet for you (using RabbitMQ events).
 3. **Fund Wallet**: POST to `/api/banking/banking/deposit`.
+4. **Test Outbox worker**: View your container logs to see the background worker flawlessly processing banking events!
 
 ---
 
@@ -130,7 +134,8 @@ Check if the system is alive:
 We love contributors! To keep our codebase premium:
 
 1. **Service Separation**: Never let banking service access the users database directly. Use RabbitMQ.
-2. **Transaction Safety**: All financial mutations must be wrapped in atomic logic or guarded by Ledger checks.
+2. **Transaction Safety**: All financial mutations must be wrapped in atomic db transactions (`db.transaction`).
+3. **Outbox Pattern**: Never use `publishEvent` raw inside a database transaction block. Insert it into `outboxEvents` instead to guarantee state.
 3. **Pino Logging**: Use the structured pino child loggers for every module (no `console.log`).
 4. **Type Safety**: New services must return the standard `ServiceResult<T>` union type.
 

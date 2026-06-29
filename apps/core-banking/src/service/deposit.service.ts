@@ -7,8 +7,8 @@ import { findIdempotencyKey, insertIdempotencyKey } from "../data-access-layer-c
 import { publishEvent } from "../settings/rabbitQ.config";
 import { serverLogger } from "../settings/pino.config";
 import { db } from "../settings/db.config";
-import { ledger, transactions, wallets } from "../database/schema";
-import { and, eq } from "drizzle-orm";
+import { ledger, outboxEvents, transactions, wallets } from "../database/schema";
+import { eq } from "drizzle-orm";
 import { updateTransactionStatus } from "../data-access-layer-core/transaction.data-access-layer";
 
 // ─────────────────────────────────────────────────────────────
@@ -127,6 +127,23 @@ export const deposit_service = async (
                 status: "completed"
             }).where(eq(transactions.id, tnx.id))
 
+            // ── OUTBOX PATTERN (Guarantee Event Delivery) ────────
+            await tx.insert(outboxEvents).values({
+                eventType: "transaction.completed",
+                payload: {
+                    transactionId: tnx.id,
+                    reference,
+                    userId,
+                    walletId: wallet.id,
+                    type: "credit",
+                    category: "funding",
+                    amount: amount.toFixed(4),
+                    balanceBefore,
+                    balanceAfter,
+                    timestamp: new Date().toISOString(),
+                }
+            })
+
             return {
                 success: true,
                 data: {
@@ -156,18 +173,7 @@ export const deposit_service = async (
         }
 
         // 10. Publish event via RabbitMQ
-        publishEvent("transaction.completed", {
-            transactionId: DepositTnx.data.transaction.id,
-            reference,
-            userId,
-            walletId: DepositTnx.data.wallet.id,
-            type: "credit",
-            category: "funding",
-            amount: amount.toFixed(4),
-            balanceBefore,
-            balanceAfter,
-            timestamp: new Date().toISOString(),
-        });
+        // Handled securely by the Outbox Worker via the outboxEvents table.
 
         depositLogger.info(
             { reference, userId, amount },

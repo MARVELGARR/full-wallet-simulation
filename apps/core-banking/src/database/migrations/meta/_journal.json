@@ -15,6 +15,13 @@
       "when": 1782053058746,
       "tag": "0001_flaky_thor",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1782748537773,
+      "tag": "0002_thankful_solo",
+      "breakpoints": true
     }
   ]
 }
