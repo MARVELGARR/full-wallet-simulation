@@ -79,83 +79,78 @@ export const transfer_service = async (
         }
     }
 
-    // Find sender wallet
-    const [senderWallet] = await db.select().from(wallets).where(eq(wallets.userId, senderUserId)).for("update");
-    if (!senderWallet) {
-        return {
-            success: false,
-            error: "Sender wallet not found",
-            details: "No wallet found for the sender.",
-        };
-    }
-
-    const senderBalance = parseFloat(senderWallet.balance);
-    if (isNaN(senderBalance)) {
-        return {
-            success: false,
-            error: "Invalid sender balance",
-            details: "The balance of the sender is  not a number"
-        }
-    }
-
-    // Find receiver wallet
-    const [receiverWallet] = await db.select().from(wallets).where(eq(wallets.userId, receiverUserId)).for("update");
-    if (!receiverWallet) {
-        return {
-            success: false,
-            error: "Receiver wallet not found",
-            details: "No wallet found for the receiver.",
-        };
-    }
-
-    const receiverBalance = parseFloat(receiverWallet.balance);
-    if (isNaN(receiverBalance)) {
-        return {
-            success: false,
-            error: "Invalid receiver balance",
-            details: "The balance of the receiver is  not a number"
-        }
-    }
-    //check if sender is reciever
-    if (senderWallet.userId === receiverWallet.userId) {
-        return {
-            success: false,
-            error: "sender userId is same as receiverId",
-            details: "cannot send to yourself"
-        }
-    }
-
-    //check is amount is less than 1
-    if (amount <= 0) {
-        return {
-            success: false,
-            error: "Amount less than 1",
-            details: "Amount must be greater than 0"
-        }
-    }
-
-    // Check sender has sufficient balance
-    if (senderBalance < amount) {
-        return {
-            success: false,
-            error: "Insufficient funds",
-            details: `Sender balance (${senderBalance.toFixed(4)}) is less than transfer amount (${amount.toFixed(4)}).`,
-        };
-    }
-
-    //Calculate new balances
-    const senderBalanceBefore = senderWallet.balance;
-    const senderBalanceAfter = (senderBalance - amount).toFixed(4);
-
-    const receiverBalanceBefore = receiverWallet.balance;
-    const receiverBalanceAfter = (
-        parseFloat(receiverWallet.balance) + amount
-    ).toFixed(4);
-
     try {
-        const p2pTranx = await db.transaction(async (tx) => {
+        const p2pTranxResult = await db.transaction(async (tx) => {
+            // Find sender wallet
+            const [senderWallet] = await tx.select().from(wallets).where(eq(wallets.userId, senderUserId)).for("update");
+            if (!senderWallet) {
+                return {
+                    success: false as const,
+                    error: "Sender wallet not found",
+                    details: "No wallet found for the sender.",
+                };
+            }
 
+            const senderBalance = parseFloat(senderWallet.balance);
+            if (isNaN(senderBalance)) {
+                return {
+                    success: false as const,
+                    error: "Invalid sender balance",
+                    details: "The balance of the sender is  not a number"
+                };
+            }
 
+            // Find receiver wallet
+            const [receiverWallet] = await tx.select().from(wallets).where(eq(wallets.userId, receiverUserId)).for("update");
+            if (!receiverWallet) {
+                return {
+                    success: false as const,
+                    error: "Receiver wallet not found",
+                    details: "No wallet found for the receiver.",
+                };
+            }
+
+            const receiverBalance = parseFloat(receiverWallet.balance);
+            if (isNaN(receiverBalance)) {
+                return {
+                    success: false as const,
+                    error: "Invalid receiver balance",
+                    details: "The balance of the receiver is  not a number"
+                };
+            }
+            //check if sender is reciever
+            if (senderWallet.userId === receiverWallet.userId) {
+                return {
+                    success: false as const,
+                    error: "sender userId is same as receiverId",
+                    details: "cannot send to yourself"
+                };
+            }
+
+            //check is amount is less than 1
+            if (amount <= 0) {
+                return {
+                    success: false as const,
+                    error: "Amount less than 1",
+                    details: "Amount must be greater than 0"
+                };
+            }
+
+            // Check sender has sufficient balance
+            if (senderBalance < amount) {
+                return {
+                    success: false as const,
+                    error: "Insufficient funds",
+                    details: `Sender balance (${senderBalance.toFixed(4)}) is less than transfer amount (${amount.toFixed(4)}).`,
+                };
+            }
+
+            //Calculate new balances
+            const senderBalanceBefore = senderWallet.balance;
+            const senderBalanceAfter = (senderBalance - amount).toFixed(4);
+
+            const receiverBalanceBefore = receiverWallet.balance;
+            const receiverBalanceAfter = (parseFloat(receiverWallet.balance) + amount).toFixed(4);
             const senderRef = generateReference("P2P");
             // create sender debit transaction
             const [senderTx] = await tx.insert(transactions).values({
@@ -225,7 +220,7 @@ export const transfer_service = async (
             })
 
             return {
-                success: true,
+                success: true as const,
                 data: {
                     senderTransaction: {
                         id: senderTx.id,
@@ -246,11 +241,17 @@ export const transfer_service = async (
                 },
             };
 
-        })
+        });
+
+        if (!p2pTranxResult.success) {
+            return p2pTranxResult;
+        }
+
+        const p2pTranx = p2pTranxResult.data;
 
         // ── IDEMPOTENCY ──────────────────────────────────────
         if (idempotencyKey) {
-            await insertIdempotencyKey(idempotencyKey, p2pTranx.data.senderTransaction.id);
+            await insertIdempotencyKey(idempotencyKey, p2pTranx.senderTransaction.id);
         }
 
 
@@ -259,8 +260,8 @@ export const transfer_service = async (
         // We now rely on the Outbox Worker to publish the event instead of publishing directly,
         // to guarantee that the database commit and the event firing don't become out of sync.
 
-        const senderRef = p2pTranx.data.senderTransaction.reference
-        const receiverRef = p2pTranx.data.receiverTransaction.reference
+        const senderRef = p2pTranx.senderTransaction.reference
+        const receiverRef = p2pTranx.receiverTransaction.reference
         transferLogger.info(
             { senderRef, receiverRef, senderUserId, receiverUserId, amount },
             "P2P Transfer completed successfully"
@@ -270,19 +271,19 @@ export const transfer_service = async (
             success: true,
             data: {
                 senderTransaction: {
-                    id: p2pTranx.data.senderTransaction.id,
-                    reference: p2pTranx.data.senderTransaction.reference,
+                    id: p2pTranx.senderTransaction.id,
+                    reference: p2pTranx.senderTransaction.reference,
                     amount: amount.toFixed(4),
-                    balanceBefore: senderBalanceBefore,
-                    balanceAfter: senderBalanceAfter,
+                    balanceBefore: p2pTranx.senderTransaction.balanceBefore,
+                    balanceAfter: p2pTranx.senderTransaction.balanceAfter,
                     status: "completed",
                 },
                 receiverTransaction: {
-                    id: p2pTranx.data.receiverTransaction.id,
-                    reference: p2pTranx.data.receiverTransaction.reference,
+                    id: p2pTranx.receiverTransaction.id,
+                    reference: p2pTranx.receiverTransaction.reference,
                     amount: amount.toFixed(4),
-                    balanceBefore: receiverBalanceBefore,
-                    balanceAfter: receiverBalanceAfter,
+                    balanceBefore: p2pTranx.receiverTransaction.balanceBefore,
+                    balanceAfter: p2pTranx.receiverTransaction.balanceAfter,
                     status: "completed",
                 },
             },

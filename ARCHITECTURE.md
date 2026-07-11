@@ -1,3 +1,7 @@
+
+
+
+
 # Senior Architecture: Full Wallet Simulation
 
 This document outlines the advanced distributed systems architecture and database design patterns implemented in this microservice environment.

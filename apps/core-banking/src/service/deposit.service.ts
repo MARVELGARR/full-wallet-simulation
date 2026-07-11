@@ -78,30 +78,30 @@ export const deposit_service = async (
         }
     }
 
-    // 3. Find the user's wallet
-    const wallet = await findeWalletByUserIdForUpdate(userId);
-    if (!wallet) {
-        return {
-            success: false,
-            error: "Wallet not found",
-            details: "No wallet found for this user. Please create a wallet first.",
-        };
-    }
-
-    // 4. Calculate new balance
-    const balanceBefore = wallet.balance;
-    const balanceAfter = (
-        parseFloat(balanceBefore) + amount
-    ).toFixed(4);
-
     const reference = generateReference("FUND");
 
     try {
-        // 5. Create the transaction record (status: pending)
+        const depositResult = await db.transaction(async (tx) => {
+            // 3. Find the user's wallet and lock it for update
+            const [wallet] = await tx
+                .select()
+                .from(wallets)
+                .where(eq(wallets.userId, userId))
+                .for("update");
 
-        const DepositTnx = await db.transaction(async (tx) => {
+            if (!wallet) {
+                return {
+                    success: false as const,
+                    error: "Wallet not found",
+                    details: "No wallet found for this user. Please create a wallet first.",
+                };
+            }
 
+            // 4. Calculate new balance
+            const balanceBefore = wallet.balance;
+            const balanceAfter = (parseFloat(balanceBefore) + amount).toFixed(4);
 
+            // 5. Create the transaction record (status: pending)
             const [tnx] = await tx.insert(transactions).values({
                 reference,
                 walletId: wallet.id,
@@ -112,20 +112,20 @@ export const deposit_service = async (
                 category: "funding",
                 narration: narration || "Wallet funding",
                 status: "pending",
-            }).returning()
+            }).returning();
 
             await tx.insert(ledger).values({
                 txnId: tnx.id,
                 walletId: wallet.id,
                 type: "credit",
                 amount: amount.toFixed(4),
-            })
+            });
 
-            await tx.update(wallets).set({ balance: balanceAfter }).where(eq(wallets.userId, userId))
+            await tx.update(wallets).set({ balance: balanceAfter }).where(eq(wallets.userId, userId));
 
             await tx.update(transactions).set({
                 status: "completed"
-            }).where(eq(transactions.id, tnx.id))
+            }).where(eq(transactions.id, tnx.id));
 
             // ── OUTBOX PATTERN (Guarantee Event Delivery) ────────
             await tx.insert(outboxEvents).values({
@@ -142,10 +142,10 @@ export const deposit_service = async (
                     balanceAfter,
                     timestamp: new Date().toISOString(),
                 }
-            })
+            });
 
             return {
-                success: true,
+                success: true as const,
                 data: {
                     transaction: {
                         id: tnx.id,
@@ -165,11 +165,16 @@ export const deposit_service = async (
                     },
                 },
             };
+        });
 
-        })
+        if (!depositResult.success) {
+            return depositResult;
+        }
+
+        const DepositTnx = depositResult.data;
         // 9. Save idempotency key
         if (idempotencyKey) {
-            await insertIdempotencyKey(idempotencyKey, DepositTnx.data.transaction.id);
+            await insertIdempotencyKey(idempotencyKey, DepositTnx.transaction.id);
         }
 
         // 10. Publish event via RabbitMQ
@@ -184,20 +189,20 @@ export const deposit_service = async (
             success: true,
             data: {
                 transaction: {
-                    id: DepositTnx.data.transaction.id,
-                    reference: DepositTnx.data.transaction.reference,
-                    amount: DepositTnx.data.transaction.amount,
-                    balanceBefore: DepositTnx.data.transaction.balanceBefore,
-                    balanceAfter: DepositTnx.data.transaction.balanceAfter,
-                    type: DepositTnx.data.transaction.type,
-                    category: DepositTnx.data.transaction.category,
-                    status: DepositTnx.data.transaction.status,
-                    narration: DepositTnx.data.transaction.narration,
-                    createdAt: DepositTnx.data.transaction.createdAt,
+                    id: DepositTnx.transaction.id,
+                    reference: DepositTnx.transaction.reference,
+                    amount: DepositTnx.transaction.amount,
+                    balanceBefore: DepositTnx.transaction.balanceBefore,
+                    balanceAfter: DepositTnx.transaction.balanceAfter,
+                    type: DepositTnx.transaction.type,
+                    category: DepositTnx.transaction.category,
+                    status: DepositTnx.transaction.status,
+                    narration: DepositTnx.transaction.narration,
+                    createdAt: DepositTnx.transaction.createdAt,
                 },
                 wallet: {
-                    id: wallet.id,
-                    newBalance: balanceAfter,
+                    id: DepositTnx.wallet.id,
+                    newBalance: DepositTnx.wallet.newBalance,
                 },
             },
         };
